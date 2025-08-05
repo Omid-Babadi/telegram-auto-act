@@ -150,15 +150,16 @@ const instagramDownloadHandler = async (ctx) => {
         const page = await browser.newPage();
 
         // Using a generic downloader website
-        const targetUrl = `https://snapinsta.app/`;
+        const targetUrl = `https://snapinsta.to/en`;
         await page.goto(targetUrl);
-        await page.type('#url', url);
-        await page.click('#downloader > div > div > div.col-lg-8.col-md-12.col-12.first > div > form > button');
+        await page.type('#s_input', url);
+        await page.click('button.btn.btn-default');
 
         // 4. Wait for the download link to appear
-        await page.waitForSelector('.download-area .download-btn', { timeout: 30000 });
+        await page.waitForSelector('a.abutton is-success is-fullwidth btn-premium mt-3', { timeout: 70000 });
         const downloadLink = await page.evaluate(() => {
-            const button = document.querySelector('.download-area .download-btn');
+            const button = document.querySelector('a.abutton is-success is-fullwidth btn-premium mt-3');
+            console.log(button)
             return button ? button.href : null;
         });
 
