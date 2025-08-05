@@ -39,7 +39,8 @@ const getMyChannelsMenu = async (ctx, page = 0) => {
     let text = '*📣 مدیریت کانال‌های من*\n\n' + (channels.length === 0 ? 'شما هیچ کانالی ثبت نکرده‌اید.' : 'لیست کانال‌های شما:');
     const buttons = [];
     channels.forEach(ch => {
-        buttons.push([Markup.button.text(`- ${ch.channelTitle} -`)]);
+        // Use callback button instead of text button
+        buttons.push([Markup.button.callback(`- ${ch.channelTitle} -`, `channel_info_${ch.channelId}`)]); // Dummy callback_data
         buttons.push([
             Markup.button.callback(ch.active ? '✅ تایید خودکار: روشن' : '❌ تایید خودکار: خاموش', `channel_toggle_${ch.channelId}`),
             Markup.button.callback('✍️ پیام خوش‌آمد', `channel_welcome_${ch.channelId}`),
