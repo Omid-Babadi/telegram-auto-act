@@ -1,5 +1,6 @@
 const { Telegraf } = require('telegraf');
 const mongoose = require('mongoose');
+const { session } = require('telegraf-session-mongodb');
 const config = require('./config');
 
 // --- Basic Error Handling ---
@@ -12,28 +13,13 @@ if (!config.mongoURI) {
     process.exit(1);
 }
 
-// --- Database Connection ---
-mongoose.connect(config.mongoURI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-}).then(() => {
-    console.log('✅ با موفقیت به پایگاه داده MongoDB متصل شد.'); // "Successfully connected to MongoDB."
-}).catch(err => {
-    console.error('❌ خطای اتصال به MongoDB:', err); // "MongoDB connection error:"
-    process.exit(1);
-});
-
 // --- Bot Initialization ---
 const bot = new Telegraf(config.botToken);
 
-// --- A simple state for pending user actions ---
-// We will use this to wait for user input, e.g., for a welcome message.
-// A more robust solution might use a database, but this is fine for now.
-const pendingActions = {};
-bot.context.pendingActions = pendingActions;
+// --- Register Middleware and Handlers ---
+// All middleware and handlers must be registered BEFORE the bot is launched.
 
-
-// --- Middleware for logging ---
+// Logging middleware
 bot.use((ctx, next) => {
     const userId = ctx.from?.id || 'N/A';
     const messageType = ctx.message?.text ? 'text' : ctx.updateType;
@@ -42,41 +28,42 @@ bot.use((ctx, next) => {
 });
 
 
-// --- Register Handlers (We will create these files next) ---
-require('./handlers/user_handler')(bot);
-require('./handlers/admin_handler')(bot);
+// --- Database Connection and Launch ---
+mongoose.connect(config.mongoURI, {}).then(async () => {
+    console.log('✅ Connected to MongoDB');
 
+    const db = mongoose.connection.db;
 
-// --- Core Event Handlers ---
-const Channel = require('./models/channel_model');
+    // Session middleware first
+    bot.use(session(db, {
+        collectionName: 'sessions',
+        ttl: 900,
+        sessionKey: (ctx) => {
+            if (ctx.from?.id) return `session:${ctx.from.id}`;
+            if (ctx.update?.chat_join_request?.from?.id) return `session:${ctx.update.chat_join_request.from.id}`;
+            return `session:unknown_${ctx.update.update_id}`;
+        },
+    }));
 
-bot.on('chat_join_request', async (ctx) => {
-    const { chat, from } = ctx.update.chat_join_request;
-    try {
-        const channel = await Channel.findOne({ channelId: chat.id, active: true });
-        if (channel) {
-            await ctx.telegram.approveChatJoinRequest(chat.id, from.id);
-            // Send welcome message in a try-catch block as the user might have blocked the bot
-            try {
-                await ctx.telegram.sendMessage(from.id, channel.welcomeMessage);
-            } catch (pmError) {
-                console.error(`Failed to send welcome PM to ${from.id} for channel ${chat.id}:`, pmError.message);
-            }
-            console.log(`✅ Approved user ${from.id} to join channel ${chat.id}`);
-        }
-    } catch (error) {
-        console.error(`Error processing join request for channel ${chat.id}:`, error);
-    }
-});
+    // Logging middleware after session to show session data
+    bot.use((ctx, next) => {
+        console.log(`User ${ctx.from?.id}, session:`, ctx.session);
+        return next();
+    });
 
+    // Register handlers that use sessions
+    require('./handlers/user_handler')(bot);
+    require('./handlers/admin_handler')(bot);
 
-// --- Launch Bot ---
-bot.launch().then(() => {
-    console.log('🤖 ربات با موفقیت راه‌اندازی شد و در حال اجرا است...'); // "Bot launched successfully and is running..."
-}).catch(err => {
-    console.error('❌ خطای راه‌اندازی ربات:', err); // "Error launching bot:"
+    bot.launch();
 });
 
 // --- Graceful Shutdown ---
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
+process.once('SIGINT', async () => {
+    await mongoose.connection.close();
+    bot.stop('SIGINT');
+});
+process.once('SIGTERM', async () => {
+    await mongoose.connection.close();
+    bot.stop('SIGTERM');
+});
